@@ -1,31 +1,12 @@
-import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import { useState } from 'react';
 import Spinner from '../components/Spinner.jsx';
-import { deleteItem, listItems } from '../services/itemsService.js';
+import { useItems } from '../context/ItemsContext.jsx';
 
 export default function ItemsList() {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { items, loading, error, remove } = useItems();
   const [deletingId, setDeletingId] = useState(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await listItems();
-      setItems(data);
-    } catch (err) {
-      console.error(err);
-      setError('Could not load your items. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const [localError, setLocalError] = useState(null);
 
   const handleDelete = async (id) => {
     const confirmed = window.confirm(
@@ -33,18 +14,24 @@ export default function ItemsList() {
     );
     if (!confirmed) return;
     setDeletingId(id);
+    setLocalError(null);
     try {
-      await deleteItem(id);
-      setItems((prev) => prev.filter((item) => item.id !== id));
+      // Optimistic: UI updates instantly inside the context.
+      await remove(id);
     } catch (err) {
       console.error(err);
-      setError('Could not delete that item. Please try again.');
+      setLocalError('Could not delete that item. Please try again.');
     } finally {
       setDeletingId(null);
     }
   };
 
-  if (loading) return <Spinner label="Loading items…" />;
+  // Only show the loader on the very first load (when we have zero data).
+  if (loading && items.length === 0) {
+    return <Spinner label="Loading items…" />;
+  }
+
+  const displayedError = localError || (error ? 'Could not load your items.' : null);
 
   return (
     <section className="page">
@@ -62,7 +49,7 @@ export default function ItemsList() {
         </Link>
       </header>
 
-      {error && <div className="alert alert--error">{error}</div>}
+      {displayedError && <div className="alert alert--error">{displayedError}</div>}
 
       {items.length === 0 ? (
         <div className="empty-state">
@@ -78,7 +65,12 @@ export default function ItemsList() {
             <li key={item.id} className="card glass">
               {item.category && <span className="badge">{item.category}</span>}
               <h3 className="card__title">
-                <Link to={`/items/${item.id}`}>{item.title}</Link>
+                <Link
+                  to={`/items/${item.id}`}
+                  state={{ item }}
+                >
+                  {item.title}
+                </Link>
               </h3>
               <p className="card__meta">
                 {item.status ? `Status: ${item.status}` : 'No status'}
@@ -88,10 +80,18 @@ export default function ItemsList() {
                 <p className="card__desc">{item.description}</p>
               )}
               <div className="card__actions">
-                <Link to={`/items/${item.id}`} className="btn btn--ghost">
+                <Link
+                  to={`/items/${item.id}`}
+                  state={{ item }}
+                  className="btn btn--ghost"
+                >
                   View
                 </Link>
-                <Link to={`/items/${item.id}/edit`} className="btn btn--ghost">
+                <Link
+                  to={`/items/${item.id}/edit`}
+                  state={{ item }}
+                  className="btn btn--ghost"
+                >
                   Edit
                 </Link>
                 <button

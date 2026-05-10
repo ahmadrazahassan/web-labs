@@ -1,8 +1,12 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
 
-// Reads values from `.env` (see `.env.example`).
-// When deploying (Vercel / Firebase Hosting) define the same VITE_FIREBASE_* vars.
+// Read from Vite env (see .env.example). These are safe to ship in the bundle —
+// Firestore security rules are the real access boundary.
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -17,7 +21,6 @@ const missing = Object.entries(firebaseConfig)
   .map(([key]) => key);
 
 if (missing.length > 0) {
-  // Fails loudly in dev so you don't chase silent empty-data bugs.
   // eslint-disable-next-line no-console
   console.warn(
     `[firebase] Missing env vars: ${missing.join(
@@ -27,7 +30,14 @@ if (missing.length > 0) {
 }
 
 export const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
 
-// Single source of truth for the collection name.
+// Persistent IndexedDB cache → subsequent page loads hydrate instantly from
+// the local store while the live data syncs in the background. Multi-tab
+// manager keeps every open tab in sync.
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
+});
+
 export const ITEMS_COLLECTION = 'items';

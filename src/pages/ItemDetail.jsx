@@ -1,23 +1,44 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import Spinner from '../components/Spinner.jsx';
-import { deleteItem, getItem } from '../services/itemsService.js';
+import { useItems } from '../context/ItemsContext.jsx';
 
 export default function ItemDetail() {
   const { id } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
-  const [item, setItem] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { getById, fetchById, remove } = useItems();
+
+  // Priority order for instant render:
+  // 1. router state passed during navigation (same request cycle)
+  // 2. in-memory snapshot cache from the live subscription
+  // 3. network fetch (deep link on a cold cache)
+  const preloaded = location.state?.item ?? getById(id);
+
+  const [item, setItem] = useState(preloaded);
+  const [loading, setLoading] = useState(!preloaded);
   const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let alive = true;
+
+    // Re-check cache if id changes (cheap and synchronous).
+    const cached = location.state?.item ?? getById(id);
+    if (cached) {
+      setItem(cached);
+      setLoading(false);
+      // Still fetch in background to pick up any fresh server-side changes,
+      // but only if the snapshot subscription hasn't provided it yet.
+      return () => {
+        alive = false;
+      };
+    }
+
+    setLoading(true);
     (async () => {
-      setLoading(true);
-      setError(null);
       try {
-        const data = await getItem(id);
+        const data = await fetchById(id);
         if (!alive) return;
         setItem(data);
       } catch (err) {
@@ -27,10 +48,17 @@ export default function ItemDetail() {
         if (alive) setLoading(false);
       }
     })();
+
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [id, location.state, getById, fetchById]);
+
+  // Keep synced with live snapshot updates.
+  useEffect(() => {
+    const latest = getById(id);
+    if (latest && latest !== item) setItem(latest);
+  }, [getById, id, item]);
 
   const handleDelete = async () => {
     const confirmed = window.confirm(
@@ -39,16 +67,18 @@ export default function ItemDetail() {
     if (!confirmed) return;
     setDeleting(true);
     try {
-      await deleteItem(id);
+      // Navigate first so the user sees instant feedback; delete streams
+      // through in the background via optimistic update.
       navigate('/items', { replace: true });
+      await remove(id);
     } catch (err) {
       console.error(err);
-      setError('Could not delete this item. Please try again.');
+      setError('Could not delete this item.');
       setDeleting(false);
     }
   };
 
-  if (loading) return <Spinner label="Loading item…" />;
+  if (loading && !item) return <Spinner label="Loading item…" />;
 
   if (error) {
     return (
@@ -104,7 +134,11 @@ export default function ItemDetail() {
       </dl>
 
       <div className="page__actions">
-        <Link to={`/items/${item.id}/edit`} className="btn btn--primary">
+        <Link
+          to={`/items/${item.id}/edit`}
+          state={{ item }}
+          className="btn btn--primary"
+        >
           Edit Item
         </Link>
         <button

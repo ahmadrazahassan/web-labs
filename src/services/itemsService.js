@@ -4,7 +4,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
-  getDocs,
+  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
@@ -12,9 +12,32 @@ import {
 } from 'firebase/firestore';
 import { db, ITEMS_COLLECTION } from '../firebase.js';
 
-// Thin service layer isolating Firestore calls from UI components.
+// Thin service layer isolating Firestore from UI components.
 
 const itemsCollection = collection(db, ITEMS_COLLECTION);
+
+/**
+ * Subscribe to the items collection in real time.
+ * Local cache makes the first callback near-instant on repeat visits;
+ * subsequent callbacks stream live changes (create / update / delete)
+ * without a manual refetch.
+ *
+ * @param {(items: Array) => void} onChange
+ * @param {(error: Error) => void} onError
+ * @returns {() => void} unsubscribe
+ */
+export function subscribeToItems(onChange, onError) {
+  const q = query(itemsCollection, orderBy('createdAt', 'desc'));
+  return onSnapshot(
+    q,
+    { includeMetadataChanges: false },
+    (snapshot) => {
+      const items = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      onChange(items);
+    },
+    onError
+  );
+}
 
 export async function createItem(data) {
   const ref = await addDoc(itemsCollection, {
@@ -23,12 +46,6 @@ export async function createItem(data) {
     updatedAt: serverTimestamp(),
   });
   return ref.id;
-}
-
-export async function listItems() {
-  const q = query(itemsCollection, orderBy('createdAt', 'desc'));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
 export async function getItem(id) {

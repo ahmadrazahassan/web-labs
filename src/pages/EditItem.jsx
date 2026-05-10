@@ -1,23 +1,28 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import ItemForm from '../components/ItemForm.jsx';
 import Spinner from '../components/Spinner.jsx';
-import { getItem, updateItem } from '../services/itemsService.js';
+import { useItems } from '../context/ItemsContext.jsx';
 
 export default function EditItem() {
   const { id } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
-  const [item, setItem] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { getById, fetchById, update } = useItems();
+
+  const preloaded = location.state?.item ?? getById(id);
+
+  const [item, setItem] = useState(preloaded);
+  const [loading, setLoading] = useState(!preloaded);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    if (item) return;
     let alive = true;
     (async () => {
-      setLoading(true);
       try {
-        const data = await getItem(id);
+        const data = await fetchById(id);
         if (!alive) return;
         if (!data) setError('This item could not be found.');
         else setItem(data);
@@ -31,14 +36,16 @@ export default function EditItem() {
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [id, item, fetchById]);
 
   const handleSubmit = async (values) => {
     setSubmitting(true);
     setError(null);
+    // Navigate immediately; optimistic patch inside the context means the
+    // detail page already shows the new values.
     try {
-      await updateItem(id, values);
-      navigate(`/items/${id}`);
+      navigate(`/items/${id}`, { state: { item: { ...item, ...values, id } } });
+      await update(id, values);
     } catch (err) {
       console.error(err);
       setError('Could not save your changes. Please try again.');
@@ -46,9 +53,9 @@ export default function EditItem() {
     }
   };
 
-  if (loading) return <Spinner label="Loading item…" />;
+  if (loading && !item) return <Spinner label="Loading item…" />;
 
-  if (error) {
+  if (error && !item) {
     return (
       <section className="page">
         <div className="alert alert--error">{error}</div>
@@ -70,6 +77,8 @@ export default function EditItem() {
           Update any field and save to apply your changes.
         </p>
       </header>
+
+      {error && <div className="alert alert--error">{error}</div>}
 
       <ItemForm
         initialValues={item}
