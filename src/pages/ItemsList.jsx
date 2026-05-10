@@ -1,0 +1,112 @@
+import { useEffect, useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
+import Spinner from '../components/Spinner.jsx';
+import { deleteItem, listItems } from '../services/itemsService.js';
+
+export default function ItemsList() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await listItems();
+      setItems(data);
+    } catch (err) {
+      console.error(err);
+      setError('Could not load your items. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handleDelete = async (id) => {
+    const confirmed = window.confirm(
+      'Delete this item? This cannot be undone.'
+    );
+    if (!confirmed) return;
+    setDeletingId(id);
+    try {
+      await deleteItem(id);
+      setItems((prev) => prev.filter((item) => item.id !== id));
+    } catch (err) {
+      console.error(err);
+      setError('Could not delete that item. Please try again.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  if (loading) return <Spinner label="Loading items…" />;
+
+  return (
+    <section className="page">
+      <header className="page__header page__header--row">
+        <div>
+          <h1>View All Items</h1>
+          <p className="page__subtitle">
+            {items.length === 0
+              ? 'No items yet. Create your first one to get started.'
+              : `${items.length} ${items.length === 1 ? 'item' : 'items'} in your collection`}
+          </p>
+        </div>
+        <Link to="/items/new" className="btn btn--primary">
+          Create Item
+        </Link>
+      </header>
+
+      {error && <div className="alert alert--error">{error}</div>}
+
+      {items.length === 0 ? (
+        <div className="empty-state">
+          <h3>Nothing here yet</h3>
+          <p>Add your first item and it will show up here right away.</p>
+          <Link to="/items/new" className="btn btn--primary">
+            Create your first item
+          </Link>
+        </div>
+      ) : (
+        <ul className="card-grid">
+          {items.map((item) => (
+            <li key={item.id} className="card glass">
+              {item.category && <span className="badge">{item.category}</span>}
+              <h3 className="card__title">
+                <Link to={`/items/${item.id}`}>{item.title}</Link>
+              </h3>
+              <p className="card__meta">
+                {item.status ? `Status: ${item.status}` : 'No status'}
+                {item.priority ? ` · ${item.priority} priority` : ''}
+              </p>
+              {item.description && (
+                <p className="card__desc">{item.description}</p>
+              )}
+              <div className="card__actions">
+                <Link to={`/items/${item.id}`} className="btn btn--ghost">
+                  View
+                </Link>
+                <Link to={`/items/${item.id}/edit`} className="btn btn--ghost">
+                  Edit
+                </Link>
+                <button
+                  type="button"
+                  className="btn btn--danger"
+                  onClick={() => handleDelete(item.id)}
+                  disabled={deletingId === item.id}
+                >
+                  {deletingId === item.id ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
