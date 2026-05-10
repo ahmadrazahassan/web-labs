@@ -18,8 +18,8 @@ export default function CreateItem() {
       // instantly without waiting for the next snapshot roundtrip.
       navigate(`/items/${id}`, { state: { item: { id, ...values } } });
     } catch (err) {
-      console.error(err);
-      setError('Could not save this item. Please try again in a moment.');
+      console.error('[create] failed', err);
+      setError(err?.message || 'Could not save this item. Please try again.');
       setSubmitting(false);
     }
   };

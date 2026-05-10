@@ -16,12 +16,37 @@ import { db, ITEMS_COLLECTION } from '../firebase.js';
 
 const itemsCollection = collection(db, ITEMS_COLLECTION);
 
+// Safety net: if Firestore never responds (database not created, rules
+// blocking, offline with no cache, etc.) we reject with a readable error
+// so the UI can recover instead of hanging on "Saving…" forever.
+const DEFAULT_TIMEOUT_MS = 10_000;
+
+function withTimeout(promise, label = 'Firestore operation') {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new Error(
+          `${label} timed out after ${DEFAULT_TIMEOUT_MS / 1000}s. ` +
+            'Check that Firestore is enabled in your Firebase project and that security rules allow read/write.'
+        )
+      );
+    }, DEFAULT_TIMEOUT_MS);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 /**
  * Subscribe to the items collection in real time.
- * Local cache makes the first callback near-instant on repeat visits;
- * subsequent callbacks stream live changes (create / update / delete)
- * without a manual refetch.
- *
  * @param {(items: Array) => void} onChange
  * @param {(error: Error) => void} onError
  * @returns {() => void} unsubscribe
@@ -35,32 +60,48 @@ export function subscribeToItems(onChange, onError) {
       const items = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
       onChange(items);
     },
-    onError
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[items] onSnapshot error', err);
+      if (onError) onError(err);
+    }
   );
 }
 
 export async function createItem(data) {
-  const ref = await addDoc(itemsCollection, {
-    ...data,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const ref = await withTimeout(
+    addDoc(itemsCollection, {
+      ...data,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }),
+    'Create item'
+  );
   return ref.id;
 }
 
 export async function getItem(id) {
-  const snapshot = await getDoc(doc(db, ITEMS_COLLECTION, id));
+  const snapshot = await withTimeout(
+    getDoc(doc(db, ITEMS_COLLECTION, id)),
+    'Load item'
+  );
   if (!snapshot.exists()) return null;
   return { id: snapshot.id, ...snapshot.data() };
 }
 
 export async function updateItem(id, data) {
-  await updateDoc(doc(db, ITEMS_COLLECTION, id), {
-    ...data,
-    updatedAt: serverTimestamp(),
-  });
+  await withTimeout(
+    updateDoc(doc(db, ITEMS_COLLECTION, id), {
+      ...data,
+      updatedAt: serverTimestamp(),
+    }),
+    'Update item'
+  );
 }
 
 export async function deleteItem(id) {
-  await deleteDoc(doc(db, ITEMS_COLLECTION, id));
+  await withTimeout(
+    deleteDoc(doc(db, ITEMS_COLLECTION, id)),
+    'Delete item'
+  );
 }
